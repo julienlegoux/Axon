@@ -1,0 +1,13 @@
+enum Value =
+  | Num { n: Int }
+  | Zero
+
+classify : Value -> String
+classify v = match v
+  Num { n } if n > 0 => "positive"
+  Num { n } if n < 0 => "negative"
+  Num { n } => "zero"
+  Zero => "zero"
+
+main : String
+main = classify (Num { n: 42 })
