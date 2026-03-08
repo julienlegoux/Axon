@@ -103,7 +103,8 @@ export type Expr =
   | SpreadExpr
   | ForExpr
   | ParenExpr
-  | ConstructorExpr;
+  | ConstructorExpr
+  | AssertExpr;
 
 export interface IntLit {
   kind: "IntLit";
@@ -252,6 +253,11 @@ export interface ConstructorExpr {
   kind: "ConstructorExpr";
   name: string;
   fields: { name: string; value: Expr }[];
+}
+
+export interface AssertExpr {
+  kind: "AssertExpr";
+  expr: Expr;
 }
 
 // ---- Patterns ----

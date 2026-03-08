@@ -1,0 +1,7 @@
+safe_div : Int -> Int -> Result Int String
+safe_div a b = if b == 0 then err "division by zero" else ok (a / b)
+
+main : String
+main = match safe_div(10, 2)
+  Ok val => "${val}"
+  Err msg => msg

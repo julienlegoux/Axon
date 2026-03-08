@@ -39,6 +39,7 @@ export enum TokenType {
   WITH = "WITH",
   TRAIT = "TRAIT",
   IMPL = "IMPL",
+  ASSERT = "ASSERT",
 
   // Operators
   PLUS = "PLUS",
@@ -128,4 +129,5 @@ export const KEYWORDS: Record<string, TokenType> = {
   with: TokenType.WITH,
   trait: TokenType.TRAIT,
   impl: TokenType.IMPL,
+  assert: TokenType.ASSERT,
 };
