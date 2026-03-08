@@ -1,0 +1,9 @@
+-- Basic math operations
+square : Int -> Int
+square x = x * x
+
+double : Int -> Int
+double x = x + x
+
+main : Int
+main = square (double 3)

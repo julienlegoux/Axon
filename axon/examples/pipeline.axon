@@ -1,0 +1,8 @@
+double : Int -> Int
+double x = x * 2
+
+increment : Int -> Int
+increment x = x + 1
+
+main : Int
+main = 5 |> double |> increment

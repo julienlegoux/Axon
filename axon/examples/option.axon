@@ -1,0 +1,11 @@
+enum Option =
+  | Some { value: Int }
+  | None
+
+describe : Option -> String
+describe opt = match opt
+  Some { value } => "got value"
+  None => "nothing"
+
+main : String
+main = describe (Some { value: 42 })
