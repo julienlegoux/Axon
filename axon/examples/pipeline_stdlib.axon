@@ -1,0 +1,5 @@
+double : Int -> Int
+double x = x * 2
+
+main : String
+main = join(", ", ["hello", "world"])

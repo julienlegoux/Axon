@@ -647,7 +647,7 @@ export class Parser {
     return { kind: "RecordType", fields };
   }
 
-  private parseTupleTypeExpr(): TupleType {
+  private parseTupleTypeExpr(): TypeExpr {
     this.expect(TokenType.LPAREN);
     const elements: TypeExpr[] = [];
     elements.push(this.parseTypeExpr());
@@ -656,6 +656,10 @@ export class Parser {
       elements.push(this.parseTypeExpr());
     }
     this.expect(TokenType.RPAREN);
+    // Single element in parens = just grouping, not a tuple
+    if (elements.length === 1) {
+      return elements[0];
+    }
     return { kind: "TupleType", elements };
   }
 
@@ -905,6 +909,9 @@ export class Parser {
       case TokenType.FOR:
         return this.parseForExpr();
 
+      case TokenType.ASSERT:
+        return this.parseAssertExpr();
+
       case TokenType.OK:
         return this.parseOkErrExpr("ok");
 
@@ -1152,8 +1159,8 @@ export class Parser {
         return { kind: "ConstructorPattern", name, fields };
       }
 
-      // Constructor with positional arg(s), e.g. Some x
-      if (this.check(TokenType.IDENT) && !this.checkAhead(TokenType.FAT_ARROW, 1)) {
+      // Constructor with positional arg(s), e.g. Some x, Ok val
+      if (this.check(TokenType.IDENT)) {
         const argName = this.current().value;
         this.advance();
         return {
@@ -1242,6 +1249,11 @@ export class Parser {
       this.advance();
     }
 
+    this.skipNewlines();
+    if (this.check(TokenType.DEDENT)) {
+      this.advance();
+    }
+    this.skipNewlines();
     this.expect(TokenType.IN);
     this.skipNewlines();
 
@@ -1346,6 +1358,12 @@ export class Parser {
     }
 
     return { kind: "ForExpr", variable, iterable, body };
+  }
+
+  private parseAssertExpr(): Expr {
+    this.expect(TokenType.ASSERT);
+    const expr = this.parseExpr();
+    return { kind: "AssertExpr", expr };
   }
 
   private parseOkErrExpr(which: "ok" | "err"): Expr {

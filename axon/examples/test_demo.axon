@@ -1,0 +1,14 @@
+add : Int -> Int -> Int
+add a b = a + b
+
+square : Int -> Int
+square x = x * x
+
+@test "add basic"
+  assert add(2, 3) == 5
+
+@test "add zero"
+  assert add(0, 0) == 0
+
+@test "square of 4"
+  assert square(4) == 16

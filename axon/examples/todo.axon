@@ -1,0 +1,10 @@
+type Todo = { id: Int, title: String, done: Bool }
+
+toggle_done : Todo -> Todo
+toggle_done t = { id: t.id, title: t.title, done: !t.done }
+
+main : String
+main =
+  let todo = { id: 1, title: "Learn Axon", done: false }
+  in let toggled = toggle_done(todo)
+  in if toggled.done then "done!" else "not done"

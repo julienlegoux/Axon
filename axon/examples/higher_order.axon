@@ -1,0 +1,8 @@
+apply_twice : (Int -> Int) -> Int -> Int
+apply_twice f x = f(f(x))
+
+increment : Int -> Int
+increment x = x + 1
+
+main : Int
+main = apply_twice(increment, 10)

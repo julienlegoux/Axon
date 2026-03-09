@@ -1,9 +1,10 @@
 import { test, expect, describe } from "bun:test";
 import { Lexer } from "../../src/lexer/lexer.ts";
 import { Parser } from "../../src/parser/parser.ts";
-import { generate } from "../../src/codegen/codegen.ts";
-import { readFileSync, writeFileSync, unlinkSync } from "fs";
-import { resolve } from "path";
+import { generate, getUsedRuntimeFunctions } from "../../src/codegen/codegen.ts";
+import { getRuntimeSource } from "../../src/codegen/runtime-bundle.ts";
+import { readFileSync, writeFileSync, unlinkSync, existsSync } from "fs";
+import { resolve, dirname, join } from "path";
 
 function compileAndRun(source: string): string {
   const lexer = new Lexer(source);
@@ -16,6 +17,15 @@ function compileAndRun(source: string): string {
   const tmpPath = resolve(__dirname, `_test_${Date.now()}.ts`);
   writeFileSync(tmpPath, output);
 
+  // Write runtime if needed
+  const runtimePath = join(dirname(tmpPath), "axon_runtime.ts");
+  const usedRuntime = getUsedRuntimeFunctions(ast);
+  let wroteRuntime = false;
+  if (usedRuntime.length > 0 && !existsSync(runtimePath)) {
+    writeFileSync(runtimePath, getRuntimeSource());
+    wroteRuntime = true;
+  }
+
   try {
     const proc = Bun.spawnSync(["bun", "run", tmpPath], {
       stdout: "pipe",
@@ -24,6 +34,7 @@ function compileAndRun(source: string): string {
     return new TextDecoder().decode(proc.stdout).trim();
   } finally {
     try { unlinkSync(tmpPath); } catch {}
+    if (wroteRuntime) { try { unlinkSync(runtimePath); } catch {} }
   }
 }
 
@@ -234,5 +245,81 @@ get_user id = id
     `);
 
     expect(output).toContain("@effect");
+  });
+});
+
+describe("String Interpolation", () => {
+  test("interpolation in match arms", () => {
+    const result = compileAndRun(`
+fizzbuzz : Int -> String
+fizzbuzz n = match (n % 3, n % 5)
+  (0, 0) => "FizzBuzz"
+  (0, _) => "Fizz"
+  (_, 0) => "Buzz"
+  _      => "\${n}"
+
+main : String
+main = fizzbuzz 7
+    `);
+    expect(result).toBe("7");
+  });
+
+  test("interpolation in function body", () => {
+    const result = compileAndRun(`
+greet : String -> String
+greet name = "hello \${name}"
+
+main : String
+main = greet "world"
+    `);
+    expect(result).toBe("hello world");
+  });
+
+  test("interpolation with arithmetic", () => {
+    const result = compileAndRun(`
+describe : Int -> String
+describe x = "result is \${x + 1}"
+
+main : String
+main = describe 41
+    `);
+    expect(result).toBe("result is 42");
+  });
+
+  test("multiple interpolations in one string", () => {
+    const result = compileAndRun(`
+pair : Int -> Int -> String
+pair a b = "\${a} and \${b}"
+
+main : String
+main = pair 1 2
+    `);
+    expect(result).toBe("1 and 2");
+  });
+});
+
+describe("Stdlib Integration", () => {
+  test("print function", () => {
+    const result = compileAndRun(`
+main : Unit
+main = print("hello stdlib")
+    `);
+    expect(result).toBe("hello stdlib");
+  });
+
+  test("length function", () => {
+    const result = compileAndRun(`
+main : Int
+main = length([1, 2, 3, 4, 5])
+    `);
+    expect(result).toBe("5");
+  });
+
+  test("join function", () => {
+    const result = compileAndRun(`
+main : String
+main = join(", ", ["hello", "world"])
+    `);
+    expect(result).toBe("hello, world");
   });
 });

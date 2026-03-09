@@ -6,4 +6,4 @@ fizzbuzz n = match (n % 3, n % 5)
   _      => "${n}"
 
 main : String
-main = fizzbuzz 15
+main = fizzbuzz 7

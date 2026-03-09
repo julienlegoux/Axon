@@ -16,6 +16,7 @@ import type {
   ImplDecl,
   DoStatement,
 } from "../parser/ast.ts";
+import { RUNTIME_FUNCTIONS } from "./runtime-bundle.ts";
 
 /** Map Axon type names to TypeScript type names */
 function mapType(typeExpr: TypeExpr): string {
@@ -69,9 +70,113 @@ function buildParamTypes(sig: TypeSig): string[] {
   return sig.params.map(mapType);
 }
 
+/** Collect all identifier names used in an expression tree */
+function collectUsedNames(expr: Expr, names: Set<string>): void {
+  switch (expr.kind) {
+    case "Ident":
+      names.add(expr.name);
+      break;
+    case "CallExpr":
+      collectUsedNames(expr.callee, names);
+      for (const arg of expr.args) collectUsedNames(arg, names);
+      break;
+    case "BinaryExpr":
+      collectUsedNames(expr.left, names);
+      collectUsedNames(expr.right, names);
+      break;
+    case "UnaryExpr":
+      collectUsedNames(expr.operand, names);
+      break;
+    case "IfExpr":
+      collectUsedNames(expr.condition, names);
+      collectUsedNames(expr.thenBranch, names);
+      collectUsedNames(expr.elseBranch, names);
+      break;
+    case "MatchExpr":
+      collectUsedNames(expr.subject, names);
+      for (const arm of expr.arms) {
+        collectUsedNames(arm.body, names);
+        if (arm.guard) collectUsedNames(arm.guard, names);
+      }
+      break;
+    case "LetExpr":
+      collectUsedNames(expr.value, names);
+      collectUsedNames(expr.body, names);
+      break;
+    case "DoExpr":
+      for (const stmt of expr.statements) {
+        if (stmt.kind === "DoExprStmt") collectUsedNames(stmt.expr, names);
+        else if (stmt.kind === "DoLetStmt") collectUsedNames(stmt.expr, names);
+        else if (stmt.kind === "DoBindStmt") collectUsedNames(stmt.expr, names);
+      }
+      break;
+    case "PipeExpr":
+      collectUsedNames(expr.left, names);
+      collectUsedNames(expr.right, names);
+      break;
+    case "LambdaExpr":
+      collectUsedNames(expr.body, names);
+      break;
+    case "ListLit":
+      for (const el of expr.elements) collectUsedNames(el, names);
+      break;
+    case "RecordLit":
+      for (const f of expr.fields) collectUsedNames(f.value, names);
+      break;
+    case "TupleLit":
+      for (const el of expr.elements) collectUsedNames(el, names);
+      break;
+    case "MemberExpr":
+      collectUsedNames(expr.object, names);
+      break;
+    case "ParenExpr":
+      collectUsedNames(expr.expr, names);
+      break;
+    case "ConstructorExpr":
+      for (const f of expr.fields) collectUsedNames(f.value, names);
+      break;
+    case "SpreadExpr":
+      collectUsedNames(expr.expr, names);
+      break;
+    case "ForExpr":
+      collectUsedNames(expr.iterable, names);
+      collectUsedNames(expr.body, names);
+      break;
+    case "AssertExpr":
+      collectUsedNames(expr.expr, names);
+      break;
+  }
+}
+
+/** Collect all used names from the entire program */
+function collectProgramUsedNames(ast: Program): Set<string> {
+  const names = new Set<string>();
+  for (const decl of ast.declarations) {
+    if (decl.kind === "FuncDecl") {
+      collectUsedNames(decl.body, names);
+    } else if (decl.kind === "TestDecl") {
+      collectUsedNames(decl.body, names);
+    }
+  }
+  return names;
+}
+
+/** Determine which runtime functions are used by this program */
+export function getUsedRuntimeFunctions(ast: Program): string[] {
+  const usedNames = collectProgramUsedNames(ast);
+  const used: string[] = [];
+  for (const name of usedNames) {
+    if (RUNTIME_FUNCTIONS.has(name)) {
+      used.push(name);
+    }
+  }
+  return used.sort();
+}
+
 export function generate(ast: Program): string {
   const lines: string[] = [];
   let hasMain = false;
+  let mainReturnsUnit = false;
   let moduleDecl: ModuleDecl | null = null;
 
   // First pass: find module declaration
@@ -81,7 +186,17 @@ export function generate(ast: Program): string {
     }
     if (decl.kind === "FuncDecl" && decl.name === "main") {
       hasMain = true;
+      if (decl.typeSig?.returnType.kind === "NamedType" && decl.typeSig.returnType.name === "Unit") {
+        mainReturnsUnit = true;
+      }
     }
+  }
+
+  // Detect used runtime functions and emit import
+  const usedRuntime = getUsedRuntimeFunctions(ast);
+  if (usedRuntime.length > 0) {
+    lines.push(`import { ${usedRuntime.join(", ")} } from "./axon_runtime";`);
+    lines.push("");
   }
 
   // If module has needs, generate as a class
@@ -99,7 +214,11 @@ export function generate(ast: Program): string {
   if (hasMain && !moduleDecl) {
     lines.push("");
     lines.push("// Entry point");
-    lines.push("console.log(main());");
+    if (mainReturnsUnit) {
+      lines.push("main();");
+    } else {
+      lines.push("console.log(main());");
+    }
   }
 
   return lines.join("\n") + "\n";
@@ -482,6 +601,11 @@ function generateExpr(expr: Expr): string {
     case "ForExpr":
       return `${generateExpr(expr.iterable)}.map((${expr.variable}) => ${generateExpr(expr.body)})`;
 
+    case "AssertExpr": {
+      const assertBody = generateExpr(expr.expr);
+      return `(() => { if (!(${assertBody})) throw new Error("Assertion failed"); })()`;
+    }
+
     case "BindExpr":
       return ""; // handled in do-notation
 
@@ -631,6 +755,38 @@ function generatePatternCondition(
     }
 
     case "ConstructorPattern": {
+      // Special handling for Ok/Err (Result type uses { ok: true/false })
+      if (pattern.name === "Ok") {
+        const conditions: string[] = [`${subject}.ok === true`];
+        const bindings: PatternBinding[] = [];
+        if (pattern.positionalFields && pattern.positionalFields.length > 0) {
+          for (const pf of pattern.positionalFields) {
+            if (pf.kind === "IdentPattern") {
+              bindings.push({ name: pf.name, value: `${subject}.value` });
+            }
+          }
+        }
+        for (const f of pattern.fields) {
+          bindings.push({ name: f.name, value: `${subject}.${f.name}` });
+        }
+        return { condition: conditions.join(" && "), bindings };
+      }
+      if (pattern.name === "Err") {
+        const conditions: string[] = [`${subject}.ok === false`];
+        const bindings: PatternBinding[] = [];
+        if (pattern.positionalFields && pattern.positionalFields.length > 0) {
+          for (const pf of pattern.positionalFields) {
+            if (pf.kind === "IdentPattern") {
+              bindings.push({ name: pf.name, value: `${subject}.error` });
+            }
+          }
+        }
+        for (const f of pattern.fields) {
+          bindings.push({ name: f.name, value: `${subject}.${f.name}` });
+        }
+        return { condition: conditions.join(" && "), bindings };
+      }
+
       const conditions: string[] = [`${subject}._tag === "${pattern.name}"`];
       const bindings: PatternBinding[] = [];
 
